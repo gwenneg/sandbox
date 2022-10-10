@@ -14,8 +14,6 @@ import com.redhat.service.smartevents.infra.models.gateways.Action;
 import com.redhat.service.smartevents.processor.actions.ActionInvoker;
 import com.redhat.service.smartevents.processor.actions.ActionInvokerBuilder;
 
-import io.vertx.ext.web.client.WebClientOptions;
-import io.vertx.mutiny.core.Vertx;
 import io.vertx.mutiny.ext.web.client.WebClient;
 
 @ApplicationScoped
@@ -25,17 +23,18 @@ public class WebhookActionInvokerBuilder implements WebhookAction, ActionInvoker
     Instance<OidcClient> oidcClients;
 
     @Inject
-    Vertx vertx;
+    @SslVerificationEnabled
+    WebClient securedWebClient;
+
+    @Inject
+    @SslVerificationDisabled
+    WebClient unsecuredWebClient;
 
     @Override
     public ActionInvoker build(ProcessorDTO processor, Action action) {
         String endpoint = action.getParameter(ENDPOINT_PARAM);
 
-        WebClientOptions options = isSslVerificationDisabled(action)
-                ? new WebClientOptions().setTrustAll(true).setVerifyHost(false)
-                : new WebClientOptions();
-
-        WebClient webClient = getWebClient(options);
+        WebClient webClient = getWebClient(action);
 
         if (requiresTechnicalBearerToken(action)) {
             return new WebhookActionInvoker(endpoint, webClient, getOidcClient());
@@ -48,8 +47,12 @@ public class WebhookActionInvokerBuilder implements WebhookAction, ActionInvoker
         return new WebhookActionInvoker(endpoint, webClient);
     }
 
-    private WebClient getWebClient(WebClientOptions options) {
-        return WebClient.create(vertx, options.setLogActivity(true));
+    private WebClient getWebClient(Action action) {
+        if (isSslVerificationDisabled(action)) {
+            return unsecuredWebClient;
+        } else {
+            return securedWebClient;
+        }
     }
 
     private OidcClient getOidcClient() {
